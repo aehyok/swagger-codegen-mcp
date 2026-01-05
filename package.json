@@ -1,0 +1,23 @@
+{
+  "name": "swagger-codegen-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for generating TypeScript API code from Swagger documentation",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/test-mcp.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-fetch": "^3.3.2"
+  },
+  "keywords": [
+    "mcp",
+    "swagger",
+    "codegen",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT"
+}
