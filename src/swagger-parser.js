@@ -141,6 +141,101 @@ export function resolveRef(swaggerDoc, ref) {
 }
 
 /**
+ * 递归解析接口中所有引用的模型，返回完整的模型定义
+ * @param {object} swaggerDoc Swagger文档对象
+ * @param {object} endpoint 接口详情对象
+ * @returns {object} 关联的模型定义 { modelName: modelDefinition, ... }
+ */
+export function resolveAllRefsForEndpoint(swaggerDoc, endpoint) {
+  const models = {};
+  const collected = new Set();
+
+  function collectFromSchema(schema) {
+    if (!schema || typeof schema !== "object") return;
+
+    // 处理 $ref 引用
+    if (schema.$ref) {
+      const refName = schema.$ref.split("/").pop();
+      if (!collected.has(refName)) {
+        collected.add(refName);
+        const definition = resolveRef(swaggerDoc, schema.$ref);
+        if (definition) {
+          models[refName] = definition;
+          // 递归处理这个定义中的嵌套引用
+          collectFromSchema(definition);
+        }
+      }
+      return;
+    }
+
+    // 处理数组类型
+    if (schema.items) {
+      collectFromSchema(schema.items);
+    }
+
+    // 处理对象属性
+    if (schema.properties) {
+      Object.values(schema.properties).forEach((prop) =>
+        collectFromSchema(prop)
+      );
+    }
+
+    // 处理 additionalProperties
+    if (
+      schema.additionalProperties &&
+      typeof schema.additionalProperties === "object"
+    ) {
+      collectFromSchema(schema.additionalProperties);
+    }
+
+    // 处理 allOf / oneOf / anyOf
+    ["allOf", "oneOf", "anyOf"].forEach((key) => {
+      if (schema[key] && Array.isArray(schema[key])) {
+        schema[key].forEach((item) => collectFromSchema(item));
+      }
+    });
+  }
+
+  // 从参数中收集
+  if (endpoint.parameters) {
+    for (const param of endpoint.parameters) {
+      if (param.schema) {
+        collectFromSchema(param.schema);
+      }
+    }
+  }
+
+  // 从请求体中收集 (OpenAPI 3.x)
+  if (endpoint.requestBody?.content) {
+    Object.values(endpoint.requestBody.content).forEach((mediaType) => {
+      if (mediaType.schema) {
+        collectFromSchema(mediaType.schema);
+      }
+    });
+  }
+
+  // 从响应中收集
+  if (endpoint.responses) {
+    for (const response of Object.values(endpoint.responses)) {
+      // Swagger 2.x 格式
+      if (response.schema) {
+        collectFromSchema(response.schema);
+      }
+      // OpenAPI 3.x 格式
+      if (response.content) {
+        Object.values(response.content).forEach((mediaType) => {
+          if (mediaType.schema) {
+            collectFromSchema(mediaType.schema);
+          }
+        });
+      }
+    }
+  }
+
+  return models;
+}
+
+/**
  * 将Swagger类型转换为TypeScript类型
  * @param {object} schema 类型schema
  * @param {object} swaggerDoc Swagger文档对象

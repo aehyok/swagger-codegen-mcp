@@ -22,6 +22,7 @@ import {
   getAllTags,
   getEndpointsByTag,
   getEndpointDetail,
+  resolveAllRefsForEndpoint,
 } from "./swagger-parser.js";
 
 import {
@@ -214,6 +215,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`未找到接口: ${method.toUpperCase()} ${path}`);
         }
 
+        // 解析所有关联的模型定义
+        const relatedModels = resolveAllRefsForEndpoint(swaggerDoc, detail);
+
         return {
           content: [
             {
@@ -222,6 +226,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   success: true,
                   endpoint: detail,
+                  relatedModels: relatedModels,
+                  relatedModelCount: Object.keys(relatedModels).length,
                 },
                 null,
                 2
