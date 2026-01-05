@@ -30,9 +30,15 @@ import {
   generateSingleEndpointCode,
 } from "./code-generator.js";
 
-// 默认Swagger URL
-const DEFAULT_SWAGGER_URL =
-  "https://dvs-dev2.utuapp.cn/api/village/swagger.json";
+import {
+  SWAGGER_SERVICES,
+  DEFAULT_SERVICE,
+  getSwaggerUrlByPath,
+  getAllServices,
+} from "./swagger-config.js";
+
+// 默认Swagger URL（从配置获取）
+const DEFAULT_SWAGGER_URL = SWAGGER_SERVICES[DEFAULT_SERVICE];
 
 // 创建MCP服务器
 const server = new Server(
@@ -86,14 +92,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "list_services",
+        description:
+          "列出所有可用的API服务及其Swagger URL。用于了解有哪些服务可用。",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+      {
         name: "get_endpoint_detail",
-        description: "获取单个API接口的详细信息，包括参数和响应定义。",
+        description:
+          "获取单个API接口的详细信息，包括参数和响应定义。会根据path自动推断对应的服务（如/api/village/...会使用village服务）。",
         inputSchema: {
           type: "object",
           properties: {
             swagger_url: {
               type: "string",
-              description: "Swagger JSON文档的URL（可选，默认使用预设URL）",
+              description:
+                "Swagger JSON文档的URL（可选，会根据path自动推断服务）",
             },
             path: {
               type: "string",
@@ -112,13 +130,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "generate_api_code",
         description:
-          "生成TypeScript API代码。可以按tag生成整个模块，或按单个接口生成。生成的代码兼容项目的request.js封装。",
+          "生成TypeScript API代码。可以按tag生成整个模块，或按单个接口生成。会根据path自动推断对应的服务。",
         inputSchema: {
           type: "object",
           properties: {
             swagger_url: {
               type: "string",
-              description: "Swagger JSON文档的URL（可选，默认使用预设URL）",
+              description:
+                "Swagger JSON文档的URL（可选，会根据path自动推断服务）",
             },
             tag: {
               type: "string",
@@ -144,9 +163,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // 处理工具调用
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  const swaggerUrl = args?.swagger_url || DEFAULT_SWAGGER_URL;
 
   try {
+    // list_services 不需要获取 Swagger 文档
+    if (name === "list_services") {
+      const services = getAllServices();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: true,
+                total: services.length,
+                services: services,
+                hint: "使用 path 参数时会自动根据路径推断服务，例如 /api/village/... 会自动使用 village 服务",
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    // 根据 path 自动推断 swagger_url（如果没有显式传入）
+    let swaggerUrl = args?.swagger_url;
+    if (!swaggerUrl && args?.path) {
+      swaggerUrl = getSwaggerUrlByPath(args.path);
+      console.error(
+        `[INFO] Auto-detected service from path: ${args.path} -> ${swaggerUrl}`
+      );
+    }
+    swaggerUrl = swaggerUrl || DEFAULT_SWAGGER_URL;
+
     // 每次调用都获取最新的Swagger文档
     console.error(`[INFO] Fetching Swagger doc from: ${swaggerUrl}`);
     const swaggerDoc = await fetchSwaggerDoc(swaggerUrl);
@@ -162,6 +212,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: true,
+                  swaggerUrl: swaggerUrl,
                   total: tags.length,
                   tags: tags,
                 },
@@ -187,6 +238,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: true,
+                  swaggerUrl: swaggerUrl,
                   tag: tag,
                   total: endpoints.length,
                   endpoints: endpoints.map((ep) => ({
@@ -225,6 +277,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: true,
+                  swaggerUrl: swaggerUrl,
                   endpoint: detail,
                   relatedModels: relatedModels,
                   relatedModelCount: Object.keys(relatedModels).length,
