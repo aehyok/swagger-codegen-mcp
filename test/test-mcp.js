@@ -1,105 +1,116 @@
 /**
- * 测试 Swagger Codegen MCP
- *
- * 运行方式: node test/test-mcp.js
+ * 测试 /api/basic/Article/SetOrder 接口
+ * 验证自动推断服务功能
  */
 
 import fetch from "node-fetch";
-import {
-  fetchSwaggerDoc,
-  getAllTags,
-  getEndpointsByTag,
-  getEndpointDetail,
-} from "../src/swagger-parser.js";
-import {
-  generateApiModule,
-  generateSingleEndpointCode,
-} from "../src/code-generator.js";
+import { getSwaggerUrlByPath } from "../src/swagger-config.js";
 
-const SWAGGER_URL = "https://dvs-dev2.utuapp.cn/api/village/swagger.json";
+const TARGET_PATH = "/api/basic/Article/SetOrder";
 
-async function test() {
-  console.log("=== 测试 Swagger Codegen MCP ===\n");
+async function testEndpoint() {
+  console.log("=== 测试接口: " + TARGET_PATH + " ===\n");
 
-  try {
-    // 1. 获取Swagger文档
-    console.log("1. 获取Swagger文档...");
-    const swaggerDoc = await fetchSwaggerDoc(SWAGGER_URL);
-    console.log("   ✓ 成功获取Swagger文档");
-    console.log(`   - 标题: ${swaggerDoc.info?.title}`);
-    console.log(`   - 版本: ${swaggerDoc.info?.version}`);
+  // 1. 自动推断服务
+  const swaggerUrl = getSwaggerUrlByPath(TARGET_PATH);
+  console.log("1. 自动推断的 Swagger URL:");
+  console.log("   " + swaggerUrl);
 
-    // 2. 获取所有tags
-    console.log("\n2. 获取所有tags...");
-    const tags = getAllTags(swaggerDoc);
-    console.log(`   ✓ 共找到 ${tags.length} 个tags`);
-    console.log(
-      "   - 前10个tags:",
-      tags
-        .slice(0, 10)
-        .map((t) => t.name)
-        .join(", ")
+  // 2. 获取 Swagger 文档
+  console.log("\n2. 获取 Swagger 文档...");
+  const response = await fetch(swaggerUrl);
+  const swaggerDoc = await response.json();
+  console.log("   文档标题: " + (swaggerDoc.info?.title || "未知"));
+  console.log("   文档版本: " + (swaggerDoc.info?.version || "未知"));
+
+  // 3. 查找接口定义
+  console.log("\n3. 查找接口定义...");
+  const pathDef = swaggerDoc.paths?.[TARGET_PATH];
+
+  if (!pathDef) {
+    // 尝试模糊匹配
+    console.log("   未找到精确路径，尝试模糊匹配...");
+    const matchedPaths = Object.keys(swaggerDoc.paths || {}).filter((p) =>
+      p.toLowerCase().includes("article/setorder")
     );
+    if (matchedPaths.length > 0) {
+      console.log("   匹配到的路径:", matchedPaths);
+    } else {
+      console.log("   未找到任何匹配的路径");
 
-    // 3. 获取VillageNursing的接口
-    console.log("\n3. 获取VillageNursing的接口...");
-    const endpoints = getEndpointsByTag(swaggerDoc, "VillageNursing");
-    console.log(`   ✓ 共找到 ${endpoints.length} 个接口`);
-    endpoints.forEach((ep) => {
-      console.log(`   - ${ep.method.padEnd(6)} ${ep.path}`);
-      console.log(`     ${ep.summary}`);
-    });
-
-    // 4. 获取单个接口详情
-    if (endpoints.length > 0) {
-      console.log("\n4. 获取第一个接口详情...");
-      const firstEndpoint = endpoints[0];
-      const detail = getEndpointDetail(
-        swaggerDoc,
-        firstEndpoint.path,
-        firstEndpoint.method
+      // 列出所有 Article 相关的路径
+      const articlePaths = Object.keys(swaggerDoc.paths || {}).filter((p) =>
+        p.toLowerCase().includes("article")
       );
-      console.log(`   ✓ 接口: ${detail.method} ${detail.path}`);
-      console.log(`   - 参数数量: ${detail.parameters.length}`);
-      if (detail.parameters.length > 0) {
-        console.log("   - 参数列表:");
-        detail.parameters.forEach((p) => {
-          console.log(
-            `     * ${p.name} (${p.in}): ${p.description || "无描述"}`
-          );
-        });
+      if (articlePaths.length > 0) {
+        console.log("\n   Article 相关的所有路径:");
+        articlePaths.forEach((p) => console.log("   - " + p));
+      }
+    }
+    return;
+  }
+
+  // 4. 打印接口详情
+  console.log("   找到接口定义!\n");
+
+  for (const [method, operation] of Object.entries(pathDef)) {
+    if (typeof operation !== "object") continue;
+
+    console.log(`4. ${method.toUpperCase()} ${TARGET_PATH}`);
+    console.log("   摘要: " + (operation.summary || "无"));
+    console.log("   标签: " + (operation.tags?.join(", ") || "无"));
+
+    // 参数
+    if (operation.parameters && operation.parameters.length > 0) {
+      console.log("\n   参数:");
+      operation.parameters.forEach((param) => {
+        console.log(
+          `   - ${param.name} (${param.in}): ${
+            param.type || param.schema?.type || "object"
+          } ${param.required ? "[必需]" : "[可选]"}`
+        );
+      });
+    }
+
+    // 请求体 (Swagger 2.x)
+    const bodyParam = operation.parameters?.find((p) => p.in === "body");
+    if (bodyParam) {
+      console.log("\n   请求体:");
+      if (bodyParam.schema?.$ref) {
+        const modelName = bodyParam.schema.$ref.split("/").pop();
+        console.log("   - 类型: " + modelName);
+
+        // 查找模型定义
+        const modelDef = swaggerDoc.definitions?.[modelName];
+        if (modelDef?.properties) {
+          console.log("   - 属性:");
+          for (const [propName, propDef] of Object.entries(
+            modelDef.properties
+          )) {
+            const required = modelDef.required?.includes(propName)
+              ? "[必需]"
+              : "[可选]";
+            console.log(
+              `     - ${propName}: ${
+                propDef.type || propDef.$ref?.split("/").pop() || "object"
+              } ${required}`
+            );
+          }
+        }
       }
     }
 
-    // 5. 生成代码
-    console.log("\n5. 生成VillageNursing模块代码...");
-    const module = generateApiModule(endpoints, swaggerDoc, "VillageNursing");
-    console.log(`   ✓ 生成完成`);
-    console.log(
-      `   - 类型文件: ${module.typesFileName} (${module.typesContent.length} 字符)`
-    );
-    console.log(
-      `   - API文件: ${module.apiFileName} (${module.apiContent.length} 字符)`
-    );
-
-    // 打印生成的代码
-    console.log("\n=== 生成的类型定义 ===\n");
-    console.log(module.typesContent.substring(0, 2000));
-    if (module.typesContent.length > 2000) {
-      console.log(`\n... 省略 ${module.typesContent.length - 2000} 字符 ...`);
+    // 响应
+    if (operation.responses) {
+      console.log("\n   响应:");
+      for (const [code, resp] of Object.entries(operation.responses)) {
+        console.log(`   - ${code}: ${resp.description || "无描述"}`);
+        if (resp.schema?.$ref) {
+          console.log("     类型: " + resp.schema.$ref.split("/").pop());
+        }
+      }
     }
-
-    console.log("\n=== 生成的API代码 ===\n");
-    console.log(module.apiContent.substring(0, 2000));
-    if (module.apiContent.length > 2000) {
-      console.log(`\n... 省略 ${module.apiContent.length - 2000} 字符 ...`);
-    }
-
-    console.log("\n=== 测试完成 ===");
-  } catch (error) {
-    console.error("测试失败:", error);
-    process.exit(1);
   }
 }
 
-test();
+testEndpoint().catch(console.error);

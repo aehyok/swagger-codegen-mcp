@@ -89,7 +89,27 @@ export function getEndpointsByTag(swaggerDoc, tag) {
  */
 export function getEndpointDetail(swaggerDoc, targetPath, targetMethod) {
   const paths = swaggerDoc.paths || {};
-  const methods = paths[targetPath];
+  let methods = paths[targetPath];
+  let actualPath = targetPath;
+
+  // 如果精确匹配失败，尝试模糊匹配（处理路径参数的情况）
+  if (!methods) {
+    // 查找以 targetPath 开头的路径（可能后面有 /{id} 等参数）
+    const matchedPath = Object.keys(paths).find((p) => {
+      // 精确前缀匹配：路径以 targetPath 开头，后面跟着 /{xxx} 或结束
+      if (p.startsWith(targetPath)) {
+        const remaining = p.slice(targetPath.length);
+        // 剩余部分为空，或者是 /{参数} 的形式
+        return remaining === "" || remaining.match(/^\/\{[^}]+\}$/);
+      }
+      return false;
+    });
+
+    if (matchedPath) {
+      methods = paths[matchedPath];
+      actualPath = matchedPath;
+    }
+  }
 
   if (!methods) {
     return null;
@@ -101,7 +121,7 @@ export function getEndpointDetail(swaggerDoc, targetPath, targetMethod) {
   }
 
   return {
-    path: targetPath,
+    path: actualPath,
     method: targetMethod.toUpperCase(),
     operationId: operation.operationId || "",
     summary: operation.summary || "",
